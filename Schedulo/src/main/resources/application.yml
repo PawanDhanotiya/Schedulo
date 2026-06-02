@@ -1,0 +1,147 @@
+# ============================================================
+# application.yml — Production-ready for Render deployment
+# Works with: Supabase PostgreSQL
+# ============================================================
+spring:
+  application:
+    name: Schedulo
+  main:
+    allow-bean-definition-overriding: true
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # ── Database (Supabase PostgreSQL via pgBouncer) ──────────
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+      connection-timeout: 20000
+      idle-timeout: 300000
+      # Keep below Supabase pgBouncer's server_idle_timeout (600s) to prevent stale connections
+      max-lifetime: 540000
+      # Validate connections before hand-off to JPA (prevents CannotCreateTransactionException)
+      connection-test-query: SELECT 1
+      validation-timeout: 5000
+      # Keepalive prevents pgBouncer from silently dropping idle connections
+      keepalive-time: 60000
+      # Skip pool validation at startup — app boots even if DB is momentarily slow
+      initialization-fail-timeout: 0
+      data-source-properties:
+        # Disable server-side prepared statements (required for pgBouncer transaction mode)
+        prepareThreshold: 0
+        preparedStatementCacheQueries: 0
+        sslmode: ${DB_SSL_MODE:require}
+        # TCP keepalive & timeout — detect dead pgBouncer connections fast
+        tcpKeepAlive: true
+        socketTimeout: 30
+        # Tell the driver not to auto-commit so Spring's @Transactional controls commits
+        autoCommit: false
+
+  # ── JPA / Hibernate ───────────────────────────────────────
+  jpa:
+    hibernate:
+      # Set to none for production speed. Schema is already initialized in Supabase.
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        # Must be explicit — when DB is unreachable at startup, Hibernate cannot
+        # auto-detect the dialect from JDBC metadata, causing a hard crash.
+        # The HHH90000025 deprecation warning this produces is acceptable.
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        default_schema: public
+        jdbc:
+          lob:
+            non_contextual_creation: true
+    open-in-view: false
+    defer-datasource-initialization: true
+
+  # ── Flyway (disabled — Supabase manages schema) ───────────
+  flyway:
+    enabled: false
+
+
+  # ── Mail (Gmail SMTP) ─────────────────────────────────────
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  # ── OAuth2 (only registered when real credentials are provided) ──
+  # Omit this entire block unless GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+  # are real values. Spring auto-config creates a ClientRegistrationRepository
+  # from any present registration key — a placeholder like "disabled" still
+  # triggers the bean and causes a startup crash when oauth2Login() is called.
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:}
+            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            scope: email, profile
+
+# ── Server ────────────────────────────────────────────────
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /
+  tomcat:
+    connection-timeout: 20000
+
+# ── App Config ────────────────────────────────────────────
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  jwt:
+    secret: ${APP_JWT_SECRET:changeme-replace-in-production-with-32-char-secret}
+    access-token-expiration-ms: 900000
+    refresh-token-expiration-ms: 604800000
+
+# ── Third Party ───────────────────────────────────────────
+supabase:
+  url: ${SUPABASE_URL:}
+  key: ${SUPABASE_KEY:}
+
+stripe:
+  api-key: ${STRIPE_API_KEY:sk_test_placeholder}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+
+# ── API Docs ─────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+# ── Logging ──────────────────────────────────────────────
+logging:
+  level:
+    root: WARN
+    com.saas.Schedulo: INFO
+    org.springframework.security: WARN
+    org.hibernate: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%logger{36}] - %msg%n"
+
+# ── Actuator ─────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
